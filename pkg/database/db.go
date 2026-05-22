@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"time"
 	"github.com/swecha/notifications/pkg/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -64,6 +65,17 @@ func (db *DB) UpdateNotificationError(id, errorMsg string, retryCount int) error
 			"retry_count":   retryCount,
 			"next_retry_at": nil,
 		}).Error
+}
+
+// GetPendingNotifications retrieves notifications stuck in pending status
+// that haven't been updated since the given cutoff time.
+// These are candidates for queue reconciliation (re-publishing to RMQ).
+func (db *DB) GetPendingNotifications(before time.Time) ([]models.Notification, error) {
+	var notifications []models.Notification
+	err := db.Where("status = ? AND updated_at < ?", models.StatusPending, before).
+		Order("updated_at ASC").
+		Find(&notifications).Error
+	return notifications, err
 }
 
 // SaveProviderConfig stores provider configuration

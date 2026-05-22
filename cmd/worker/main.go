@@ -168,6 +168,62 @@ func (w *NotificationWorker) handleFailedMessage(ctx context.Context, msg *queue
 	w.queue.PublishToDLQ(ctx, msg)
 }
 
+// StartReconciler periodically checks for notifications stuck in "pending"
+// that were never processed (e.g., lost during RabbitMQ failure).
+// It re-publishes them to the queue so the worker can pick them up.
+func (w *NotificationWorker) StartReconciler(ctx context.Context, interval time.Duration, staleAge time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	log.Printf("Reconciler started: checking every %v for pending notifications older than %v", interval, staleAge)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			w.reconcileOnce(ctx, staleAge)
+		}
+	}
+}
+
+func (w *NotificationWorker) reconcileOnce(ctx context.Context, staleAge time.Duration) {
+	cutoff := time.Now().Add(-staleAge)
+	notifications, err := w.db.GetPendingNotifications(cutoff)
+	if err != nil {
+		log.Printf("reconciler: failed to query pending notifications: %v", err)
+		return
+	}
+
+	if len(notifications) == 0 {
+		return
+	}
+
+	log.Printf("reconciler: found %d stale pending notifications, re-enqueueing", len(notifications))
+
+	for _, n := range notifications {
+		msg := &queue.Message{
+			ID:           n.ID,
+			Provider:     n.Provider,
+			Recipient:    n.Recipient,
+			Subject:      n.Subject,
+			Content:      n.Content,
+			DeliveryMode: n.DeliveryMode,
+		}
+
+		if err := w.queue.Publish(ctx, msg); err != nil {
+			log.Printf("reconciler: failed to re-publish %s: %v", n.ID, err)
+			continue
+		}
+
+		w.db.Model(&models.Notification{}).
+			Where("id = ?", n.ID).
+			Update("updated_at", time.Now())
+
+		log.Printf("reconciler: re-published stale notification %s", n.ID)
+	}
+}
+
 func main() {
 	// Load config
 	rabbitmqDSN := os.Getenv("RABBITMQ_URL")
@@ -205,6 +261,9 @@ func main() {
 	if err := worker.InitializeProviders(ctx); err != nil {
 		log.Fatalf("failed to initialize providers: %v", err)
 	}
+
+	// Start reconciler (background safety net for RMQ message loss)
+	go worker.StartReconciler(ctx, 5*time.Minute, 5*time.Minute)
 
 	// Handle graceful shutdown
 	sigChan := make(chan os.Signal, 1)
