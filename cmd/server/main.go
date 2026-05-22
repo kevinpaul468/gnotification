@@ -58,6 +58,7 @@ func main() {
 
 	// Create handlers
 	notifHandler := handlers.NewNotificationHandler(db, q)
+	adminHandler := handlers.NewAdminHandler(db, q)
 
 	// Setup Echo
 	e := echo.New()
@@ -70,6 +71,26 @@ func main() {
 	e.GET("/health", notifHandler.HealthHandler)
 	e.POST("/notifications/send", notifHandler.SendNotification)
 	e.GET("/notifications/:id", notifHandler.GetNotificationStatus)
+
+	// Root route - API Key Request Form
+	e.GET("/", adminHandler.GetRequestPage)
+	e.POST("/api-key-request", adminHandler.RequestAPIKey)
+
+	// Admin Routes
+	e.GET("/admin", adminHandler.AdminDashboard)
+	e.GET("/admin/stats", adminHandler.GetDashboardStats)
+	e.GET("/admin/notifications", adminHandler.GetNotifications)
+	e.POST("/admin/api-keys", adminHandler.CreateAPIKey)
+	e.GET("/admin/api-keys", adminHandler.GetAPIKeys)
+	e.DELETE("/admin/api-keys", adminHandler.RevokeAPIKey)
+	e.POST("/admin/provider-configs", adminHandler.SaveProviderConfig)
+	e.GET("/admin/provider-configs", adminHandler.GetProviderConfigs)
+	e.DELETE("/admin/provider-configs", adminHandler.DeleteProviderConfig)
+	e.GET("/admin/providers/available", adminHandler.GetAvailableProviders)
+
+	// API Key Request Routes (admin endpoints)
+	e.GET("/admin/api-key-requests", adminHandler.GetAPIKeyRequests)
+	e.POST("/admin/api-key-requests/approve", adminHandler.ApproveAPIKeyRequest)
 
 	// Start server
 	log.Printf("Server starting on port %s", port)

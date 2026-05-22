@@ -401,3 +401,132 @@ MIT
 - Issues: GitHub Issues
 - Discussions: GitHub Discussions
 - Docs: See `PLUGIN_ARCHITECTURE.md` for extending with new providers
+
+---
+
+## 🎛️ Admin Dashboard
+
+Access the admin dashboard at: **`http://localhost:8080/admin`**
+
+### Features
+
+📋 **Dashboard**
+- View real-time statistics (total, pending, sent, failed notifications)
+- Monitor success rate and average delivery time
+- Track active providers and API keys
+
+🔌 **Provider Management**
+- Configure SMTP (email), SMS, and other providers
+- Enable/disable providers without code changes
+- Store service credentials securely in database
+- Support for unlimited provider configurations
+
+🔑 **API Key Management**
+- Generate API keys for each application
+- Track API key usage and last access time
+- Revoke compromised keys instantly
+- Each app gets isolated access
+
+📨 **Notification Monitoring**
+- View all notifications with full history
+- Filter by status (pending, sent, failed, delivered)
+- Search by provider, app ID, or recipient
+- Monitor retry attempts and error messages
+
+### Quick Start
+
+1. **Start the service:**
+   ```bash
+   docker-compose up -d
+   ```
+
+2. **Open admin panel:**
+   ```
+   http://localhost:8080/admin
+   ```
+
+3. **Add a provider (SMTP example):**
+   - Go to Providers tab
+   - Select SMTP
+   - Enter Gmail credentials:
+     ```json
+     {
+       "host": "smtp.gmail.com",
+       "port": 587,
+       "username": "your-email@gmail.com",
+       "password": "app-password",
+       "from": "noreply@example.com",
+       "tls": true
+     }
+     ```
+   - Click Save Configuration
+
+4. **Create an API key:**
+   - Go to API Keys tab
+   - Enter App ID: `my-app`
+   - Click Generate API Key
+   - Copy the key (shown once only!)
+
+5. **Send a notification:**
+   ```bash
+   curl -X POST http://localhost:8080/notifications/send \
+     -H "Content-Type: application/json" \
+     -d '{
+       "provider": "smtp",
+       "recipient": "user@example.com",
+       "subject": "Hello",
+       "content": "Test notification",
+       "delivery_mode": "at_least_once"
+     }'
+   ```
+
+### Admin API Endpoints
+
+All endpoints return JSON. No authentication required (add as needed).
+
+#### Dashboard
+- `GET /admin/stats` - Get dashboard statistics
+
+#### API Keys
+- `POST /admin/api-keys` - Create new API key
+- `GET /admin/api-keys` - List all API keys
+- `DELETE /admin/api-keys` - Revoke an API key
+
+#### Provider Configs
+- `POST /admin/provider-configs` - Save provider configuration
+- `GET /admin/provider-configs` - List all configurations
+- `DELETE /admin/provider-configs` - Delete configuration
+
+#### Notifications
+- `GET /admin/notifications` - List notifications (with filters)
+- `GET /admin/providers/available` - List registered providers
+
+### Configuration via Admin UI
+
+Instead of manually inserting into the database, use the admin UI to:
+
+1. **Add new SMTP provider:**
+   - Providers → Add Configuration
+   - Select "SMTP (Email)"
+   - Paste JSON config
+   - Toggle Active
+   - Save
+
+2. **Add new SMS provider:**
+   - Same process with SMS config
+   - Include API keys, phone numbers, etc.
+
+3. **Generate API keys:**
+   - API Keys → Create New API Key
+   - Enter app name
+   - Copy and save the key
+
+### For Full Details
+
+See [ADMIN_GUIDE.md](./ADMIN_GUIDE.md) for:
+- Detailed UI walkthrough
+- All provider configuration examples
+- Security best practices
+- Troubleshooting guide
+- API endpoint reference
+

@@ -43,12 +43,20 @@ func (Notification) TableName() string {
 
 // APIKey tracks API keys for app authentication
 type APIKey struct {
-	ID        string    `gorm:"primaryKey"`
-	AppID     string    `gorm:"index,unique"`
-	KeyHash   string    // bcrypt hash of actual key
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	LastUsedAt *time.Time
+	ID           string     `gorm:"primaryKey"`
+	AppID        string     `gorm:"index,unique"`
+	KeyHash      string     // bcrypt hash of actual key
+	Name         string     // Human-readable name (e.g., "Production", "Staging")
+	Status       string     `gorm:"index"` // active, revoked, expired
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	LastUsedAt   *time.Time
+	ExpiresAt    *time.Time `gorm:"index"` // null = never expires
+	RevokedAt    *time.Time // when it was revoked
+	RevokeReason string     // why it was revoked
+	RateLimit    int        // requests per minute (0 = unlimited)
+	CreatedBy    string     // which admin created it
+	RevokedBy    string     // which admin revoked it
 }
 
 func (APIKey) TableName() string {
@@ -67,4 +75,54 @@ type ProviderConfig struct {
 
 func (ProviderConfig) TableName() string {
 	return "provider_configs"
+}
+
+// APIKeyRequest tracks API key requests from users
+type APIKeyRequest struct {
+	ID            string    `gorm:"primaryKey"`
+	AppName       string    `gorm:"index"` // Name of the application
+	AppID         string    `gorm:"index"` // Requested app ID
+	Email         string    // Requester email
+	CompanyName   string    // Company/organization name
+	Purpose       string    // Purpose of the API key
+	Status        string    `gorm:"index"` // pending, approved, rejected
+	AdminComment  string    // Reason for approval/rejection
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	ApprovedAt    *time.Time
+	ApprovedBy    string    // Admin user who approved
+}
+
+func (APIKeyRequest) TableName() string {
+	return "api_key_requests"
+}
+
+// APIKeyRotation tracks when keys were rotated
+type APIKeyRotation struct {
+	ID           string    `gorm:"primaryKey"`
+	OldKeyID     string    // Previous key ID
+	NewKeyID     string    // New key ID
+	AppID        string    `gorm:"index"`
+	Reason       string    // why rotated (expired, compromised, etc)
+	RotatedAt    time.Time
+	RotatedBy    string    // admin who initiated rotation
+}
+
+func (APIKeyRotation) TableName() string {
+	return "api_key_rotations"
+}
+
+// APIKeyUsage tracks API key usage metrics
+type APIKeyUsage struct {
+	ID           string    `gorm:"primaryKey"`
+	KeyID        string    `gorm:"index"`
+	RequestCount int64     // Number of requests
+	LastUsedAt   time.Time
+	FirstUsedAt  time.Time
+	BytesIn      int64     // Total request bytes
+	BytesOut     int64     // Total response bytes
+}
+
+func (APIKeyUsage) TableName() string {
+	return "api_key_usage"
 }

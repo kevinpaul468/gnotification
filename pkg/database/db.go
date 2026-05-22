@@ -28,6 +28,7 @@ func (db *DB) Migrate() error {
 		&models.Notification{},
 		&models.APIKey{},
 		&models.ProviderConfig{},
+		&models.APIKeyRequest{},
 	)
 }
 
@@ -106,6 +107,59 @@ func (db *DB) GetAPIKey(keyHash string) (*models.APIKey, error) {
 		return nil, err
 	}
 	return &key, nil
+}
+
+// SaveAPIKey saves an API key (for admin)
+func (db *DB) SaveAPIKey(key *models.APIKey) error {
+	return db.Save(key).Error
+}
+
+// GetAllProviderConfigs retrieves all provider configs (active and inactive)
+func (db *DB) GetAllProviderConfigs() ([]models.ProviderConfig, error) {
+	var configs []models.ProviderConfig
+	err := db.Find(&configs).Error
+	return configs, err
+}
+
+// SaveAPIKeyRequest saves an API key request
+func (db *DB) SaveAPIKeyRequest(req *models.APIKeyRequest) error {
+	return db.Save(req).Error
+}
+
+// GetAPIKeyRequests retrieves API key requests with filters
+func (db *DB) GetAPIKeyRequests(status string) ([]models.APIKeyRequest, error) {
+	var requests []models.APIKeyRequest
+	query := db.DB
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	err := query.Order("created_at DESC").Find(&requests).Error
+	return requests, err
+}
+
+// GetAPIKeyRequest retrieves a single API key request
+func (db *DB) GetAPIKeyRequest(id string) (*models.APIKeyRequest, error) {
+	var req models.APIKeyRequest
+	if err := db.First(&req, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
+// UpdateAPIKeyRequest updates API key request status
+func (db *DB) UpdateAPIKeyRequest(id, status, adminComment, approvedBy string) error {
+	updates := map[string]interface{}{
+		"status":         status,
+		"admin_comment":  adminComment,
+		"updated_at":     time.Now(),
+	}
+	if status == "approved" {
+		updates["approved_at"] = time.Now()
+		updates["approved_by"] = approvedBy
+	}
+	return db.Model(&models.APIKeyRequest{}).
+		Where("id = ?", id).
+		Updates(updates).Error
 }
 
 // Close closes the database connection

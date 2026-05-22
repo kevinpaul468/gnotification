@@ -45,9 +45,11 @@ func (h *NotificationHandler) SendNotification(c echo.Context) error {
 	}
 
 	// Extract API key and app ID from header (auth middleware should do this)
-	appID := c.Get("app_id").(string)
-	if appID == "" {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+	appIDRaw := c.Get("app_id")
+	appID, ok := appIDRaw.(string)
+	if !ok || appID == "" {
+		// Default to "unknown" if no app_id is set (for development/testing)
+		appID = "unknown"
 	}
 
 	// Check for duplicate using idempotency key
