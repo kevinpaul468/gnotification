@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     error_message TEXT,
     retry_count INTEGER DEFAULT 0,
     last_retry_at TIMESTAMP NULL,
+    next_retry_at TIMESTAMP NULL,
     idempotency_key VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -25,19 +26,6 @@ CREATE INDEX IF NOT EXISTS idx_notifications_provider ON notifications(provider)
 CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_idempotency_key ON notifications(idempotency_key);
 CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
-
-CREATE TABLE IF NOT EXISTS failed_notifications (
-    id VARCHAR(36) PRIMARY KEY,
-    notification_id VARCHAR(36) NOT NULL REFERENCES notifications(id),
-    reason TEXT,
-    next_retry_at TIMESTAMP NULL,
-    attempts INTEGER DEFAULT 0,
-    last_error TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_failed_notifications_notification_id ON failed_notifications(notification_id);
 
 CREATE TABLE IF NOT EXISTS api_keys (
     id VARCHAR(36) PRIMARY KEY,
@@ -71,9 +59,6 @@ DROP TABLE IF EXISTS provider_configs;
 
 DROP INDEX IF EXISTS idx_api_keys_app_id;
 DROP TABLE IF EXISTS api_keys;
-
-DROP INDEX IF EXISTS idx_failed_notifications_notification_id;
-DROP TABLE IF EXISTS failed_notifications;
 
 DROP INDEX IF EXISTS idx_notifications_created_at;
 DROP INDEX IF EXISTS idx_notifications_idempotency_key;

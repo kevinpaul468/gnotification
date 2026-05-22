@@ -161,17 +161,7 @@ func (w *NotificationWorker) handleRetry(ctx context.Context, msg *queue.Message
 func (w *NotificationWorker) handleFailedMessage(ctx context.Context, msg *queue.Message, errMsg string) {
 	log.Printf("moving message %s to DLQ: %s", msg.ID, errMsg)
 
-	// Update DB
-	fn := &models.FailedNotification{
-		ID:             fmt.Sprintf("%s-dlq-%d", msg.ID, time.Now().Unix()),
-		NotificationID: msg.ID,
-		Reason:         errMsg,
-		Attempts:       msg.Retries,
-		LastError:      errMsg,
-	}
-	w.db.CreateFailedNotification(fn)
-
-	// Update notification status
+	// Update notification status (sets status=failed, error_message, retry_count)
 	w.db.UpdateNotificationError(msg.ID, errMsg, msg.Retries)
 
 	// Publish to DLQ

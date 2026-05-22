@@ -25,7 +25,6 @@ func NewDB(dsn string) (*DB, error) {
 func (db *DB) Migrate() error {
 	return db.AutoMigrate(
 		&models.Notification{},
-		&models.FailedNotification{},
 		&models.APIKey{},
 		&models.ProviderConfig{},
 	)
@@ -60,25 +59,11 @@ func (db *DB) UpdateNotificationError(id, errorMsg string, retryCount int) error
 	return db.Model(&models.Notification{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
-			"status":      models.StatusFailed,
+			"status":        models.StatusFailed,
 			"error_message": errorMsg,
-			"retry_count": retryCount,
+			"retry_count":   retryCount,
+			"next_retry_at": nil,
 		}).Error
-}
-
-// CreateFailedNotification saves a failed notification record
-func (db *DB) CreateFailedNotification(fn *models.FailedNotification) error {
-	return db.Create(fn).Error
-}
-
-// GetFailedNotifications retrieves pending failed notifications
-func (db *DB) GetFailedNotifications(limit int) ([]models.FailedNotification, error) {
-	var failures []models.FailedNotification
-	err := db.Where("attempts < ?", 5).
-		Order("next_retry_at ASC").
-		Limit(limit).
-		Find(&failures).Error
-	return failures, err
 }
 
 // SaveProviderConfig stores provider configuration
