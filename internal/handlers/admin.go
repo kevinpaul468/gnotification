@@ -126,6 +126,7 @@ return c.JSON(http.StatusOK, map[string]string{"message": "API key revoked"})
 // SaveProviderConfigRequest to save/update provider config
 type SaveProviderConfigRequest struct {
 ID       string                 `json:"id"`
+AppID    string                 `json:"app_id"` // empty for global config
 Provider string                 `json:"provider" validate:"required"`
 Config   map[string]interface{} `json:"config" validate:"required"`
 IsActive bool                   `json:"is_active"`
@@ -134,6 +135,7 @@ IsActive bool                   `json:"is_active"`
 // SaveProviderConfigResponse returns saved config
 type SaveProviderConfigResponse struct {
 ID        string    `json:"id"`
+AppID     string    `json:"app_id"`
 Provider  string    `json:"provider"`
 IsActive  bool      `json:"is_active"`
 CreatedAt time.Time `json:"created_at"`
@@ -152,6 +154,15 @@ if !isValidProvider(req.Provider) {
 return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid provider"})
 }
 
+// Validate app_id if provided
+var appID *string
+if req.AppID != "" {
+if _, err := h.db.GetApp(req.AppID); err != nil {
+return c.JSON(http.StatusBadRequest, map[string]string{"error": "App not found"})
+}
+appID = &req.AppID
+}
+
 // Serialize config to JSON
 configJSON, err := json.Marshal(req.Config)
 if err != nil {
@@ -166,6 +177,7 @@ id = uuid.New().String()
 
 pc := &models.ProviderConfig{
 ID:       id,
+AppID:    appID,
 Provider: req.Provider,
 Config:   string(configJSON),
 IsActive: req.IsActive,
@@ -175,8 +187,14 @@ if err := h.db.SaveProviderConfig(pc); err != nil {
 return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to save provider config"})
 }
 
+var respAppID string
+if pc.AppID != nil {
+respAppID = *pc.AppID
+}
+
 return c.JSON(http.StatusOK, SaveProviderConfigResponse{
 ID:        pc.ID,
+AppID:     respAppID,
 Provider:  pc.Provider,
 IsActive:  pc.IsActive,
 CreatedAt: pc.CreatedAt,
@@ -187,6 +205,7 @@ UpdatedAt: pc.UpdatedAt,
 // GetProviderConfigResponse returns provider config details
 type GetProviderConfigResponse struct {
 ID        string                 `json:"id"`
+AppID     string                 `json:"app_id"`
 Provider  string                 `json:"provider"`
 Config    map[string]interface{} `json:"config"`
 IsActive  bool                   `json:"is_active"`
@@ -207,8 +226,13 @@ var configMap map[string]interface{}
 if err := json.Unmarshal([]byte(cfg.Config), &configMap); err != nil {
 configMap = make(map[string]interface{})
 }
+var respAppID string
+if cfg.AppID != nil {
+respAppID = *cfg.AppID
+}
 response[i] = GetProviderConfigResponse{
 ID:        cfg.ID,
+AppID:     respAppID,
 Provider:  cfg.Provider,
 Config:    configMap,
 IsActive:  cfg.IsActive,

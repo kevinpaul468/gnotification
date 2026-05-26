@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -18,19 +19,22 @@ import (
 )
 
 type NotificationWorker struct {
-	db        *database.DB
-	queue     *queue.Queue
-	providers map[string]providers.Provider
-	maxRetries int
+	db          *database.DB
+	queue       *queue.Queue
+	providers   map[string]providers.Provider       // global providers (shared infra)
+	appProviders map[string]map[string]providers.Provider // appID -> providerName -> provider
+	mu          sync.RWMutex
+	maxRetries  int
 }
 
 // NewWorker creates a new worker instance
 func NewWorker(db *database.DB, q *queue.Queue) *NotificationWorker {
 	return &NotificationWorker{
-		db:         db,
-		queue:      q,
-		providers:  make(map[string]providers.Provider),
-		maxRetries: 5,
+		db:          db,
+		queue:       q,
+		providers:   make(map[string]providers.Provider),
+		appProviders: make(map[string]map[string]providers.Provider),
+		maxRetries:  5,
 	}
 }
 
@@ -61,6 +65,51 @@ func (w *NotificationWorker) InitializeProviders(ctx context.Context) error {
 	return nil
 }
 
+// getOrCreateProvider resolves the provider for a given app.
+// For app-scoped configs, it merges global + per-app config and caches the result.
+// Falls back to the global provider if no app-specific config exists.
+func (w *NotificationWorker) getOrCreateProvider(ctx context.Context, appID, providerName string) (providers.Provider, error) {
+	// Check app-specific cache first
+	w.mu.RLock()
+	if appProviders, ok := w.appProviders[appID]; ok {
+		if p, ok := appProviders[providerName]; ok {
+			w.mu.RUnlock()
+			return p, nil
+		}
+	}
+	w.mu.RUnlock()
+
+	// Resolve merged config from DB
+	configMap, err := w.db.GetMergedProviderConfig(providerName, appID)
+	if err != nil {
+		// Fallback to global provider
+		w.mu.RLock()
+		p, ok := w.providers[providerName]
+		w.mu.RUnlock()
+		if ok {
+			return p, nil
+		}
+		return nil, err
+	}
+
+	// Create provider with merged config
+	provider, err := providers.Create(providerName, configMap)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache app-specific provider
+	w.mu.Lock()
+	if w.appProviders[appID] == nil {
+		w.appProviders[appID] = make(map[string]providers.Provider)
+	}
+	w.appProviders[appID][providerName] = provider
+	w.mu.Unlock()
+
+	log.Printf("initialized provider %s for app %s", providerName, appID)
+	return provider, nil
+}
+
 // Start begins processing messages
 func (w *NotificationWorker) Start(ctx context.Context) error {
 	msgs, err := w.queue.Consume(ctx, "notifications", 10)
@@ -89,12 +138,12 @@ func (w *NotificationWorker) processMessage(ctx context.Context, delivery amqp.D
 		return
 	}
 
-	log.Printf("Processing message %s to provider %s", msg.ID, msg.Provider)
+	log.Printf("Processing message %s for app %s via provider %s", msg.ID, msg.AppID, msg.Provider)
 
-	provider, exists := w.providers[msg.Provider]
-	if !exists {
-		log.Printf("provider %s not found", msg.Provider)
-		w.handleFailedMessage(ctx, &msg, "Provider not found")
+	provider, err := w.getOrCreateProvider(ctx, msg.AppID, msg.Provider)
+	if err != nil {
+		log.Printf("provider %s not found: %v", msg.Provider, err)
+		w.handleFailedMessage(ctx, &msg, "Provider not found: "+err.Error())
 		delivery.Ack(false)
 		return
 	}
