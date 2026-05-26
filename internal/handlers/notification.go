@@ -86,6 +86,7 @@ func (h *NotificationHandler) SendNotification(c echo.Context) error {
 	// Queue the message
 	msg := &queue.Message{
 		ID:           notifID,
+		AppID:        appID,
 		Provider:     req.Provider,
 		Recipient:    req.Recipient,
 		Subject:      req.Subject,

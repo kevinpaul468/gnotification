@@ -204,6 +204,7 @@ func (w *NotificationWorker) reconcileOnce(ctx context.Context, staleAge time.Du
 	for _, n := range notifications {
 		msg := &queue.Message{
 			ID:           n.ID,
+			AppID:        n.AppID,
 			Provider:     n.Provider,
 			Recipient:    n.Recipient,
 			Subject:      n.Subject,

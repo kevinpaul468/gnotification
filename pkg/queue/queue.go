@@ -11,6 +11,7 @@ import (
 // Message represents a message in the queue
 type Message struct {
 	ID       string                 `json:"id"`
+	AppID    string                 `json:"app_id"`
 	Provider string                 `json:"provider"`
 	Recipient string                `json:"recipient"`
 	Subject  string                 `json:"subject,omitempty"`
