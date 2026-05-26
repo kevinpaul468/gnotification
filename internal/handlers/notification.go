@@ -3,7 +3,9 @@ package handlers
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -44,12 +46,30 @@ func (h *NotificationHandler) SendNotification(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request"})
 	}
 
-	// Extract API key and app ID from header (auth middleware should do this)
-	appIDRaw := c.Get("app_id")
-	appID, ok := appIDRaw.(string)
+	// Extract app ID from auth middleware
+	appID, ok := c.Get("app_id").(string)
 	if !ok || appID == "" {
-		// Default to "unknown" if no app_id is set (for development/testing)
-		appID = "unknown"
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+	}
+
+	// Validate provider permission
+	allowedRaw := c.Get("allowed_providers")
+	if allowedStr, ok := allowedRaw.(string); ok && allowedStr != "" {
+		var allowed []string
+		if err := json.Unmarshal([]byte(allowedStr), &allowed); err == nil && len(allowed) > 0 {
+			hasPermission := false
+			for _, p := range allowed {
+				if strings.EqualFold(p, req.Provider) {
+					hasPermission = true
+					break
+				}
+			}
+			if !hasPermission {
+				return c.JSON(http.StatusForbidden, map[string]string{
+					"error": "App does not have permission for provider: " + req.Provider,
+				})
+			}
+		}
 	}
 
 	// Check for duplicate using idempotency key

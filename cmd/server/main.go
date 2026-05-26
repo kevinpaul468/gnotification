@@ -6,8 +6,9 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	echomw "github.com/labstack/echo/v4/middleware"
 	"github.com/swecha/notifications/internal/handlers"
+	"github.com/swecha/notifications/internal/middleware"
 	"github.com/swecha/notifications/pkg/database"
 	"github.com/swecha/notifications/pkg/queue"
 )
@@ -58,19 +59,33 @@ func main() {
 
 	// Create handlers
 	notifHandler := handlers.NewNotificationHandler(db, q)
+	appHandler := handlers.NewAppHandler(db)
 	adminHandler := handlers.NewAdminHandler(db, q)
 
 	// Setup Echo
 	e := echo.New()
 
 	// Middleware
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
+	e.Use(echomw.Logger())
+	e.Use(echomw.Recover())
+
+	// Auth middleware
+	auth := middleware.NewAuthMiddleware(db)
 
 	// Routes
 	e.GET("/health", notifHandler.HealthHandler)
-	e.POST("/notifications/send", notifHandler.SendNotification)
-	e.GET("/notifications/:id", notifHandler.GetNotificationStatus)
+	e.POST("/apps", appHandler.CreateApp) // unauthenticated bootstrap
+
+	// Authenticated routes
+	authed := e.Group("")
+	authed.Use(auth.Authenticate)
+	authed.GET("/apps", appHandler.ListApps)
+	authed.GET("/apps/:id", appHandler.GetApp)
+	authed.POST("/apps/:id/api-keys", appHandler.CreateAPIKey)
+	authed.DELETE("/api-keys/:id", appHandler.DeleteAPIKey)
+	authed.GET("/apps/:id/usage", appHandler.GetUsage)
+	authed.POST("/notifications/send", notifHandler.SendNotification)
+	authed.GET("/notifications/:id", notifHandler.GetNotificationStatus)
 
 	// Root route - API Key Request Form
 	e.GET("/", adminHandler.GetRequestPage)
