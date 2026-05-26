@@ -26,9 +26,9 @@ func NewDB(dsn string) (*DB, error) {
 func (db *DB) Migrate() error {
 	return db.AutoMigrate(
 		&models.Notification{},
+		&models.App{},
 		&models.APIKey{},
 		&models.ProviderConfig{},
-		&models.APIKeyRequest{},
 	)
 }
 

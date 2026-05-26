@@ -63,10 +63,25 @@ func (APIKey) TableName() string {
 	return "api_keys"
 }
 
-// ProviderConfig stores provider configurations
+// App represents a registered client application
+type App struct {
+	ID               string    `gorm:"primaryKey"`
+	Name             string    `gorm:"uniqueIndex"`
+	Description      string
+	AllowedProviders string    // JSON array: ["smtp","sms","push"]
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+func (App) TableName() string {
+	return "apps"
+}
+
+// ProviderConfig stores provider configurations for global or per-app use
 type ProviderConfig struct {
 	ID        string    `gorm:"primaryKey"`
-	Provider  string    `gorm:"index"` // smtp, sms, push
+	Provider  string    `gorm:"index:idx_provider_app"` // smtp, sms, push
+	AppID     *string   `gorm:"index:idx_provider_app"` // NULL = global, non-NULL = per-app
 	Config    string    // JSON-encoded config
 	IsActive  bool
 	CreatedAt time.Time

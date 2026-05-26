@@ -110,6 +110,7 @@ func main() {
 		}
 		if err := gormDB.AutoMigrate(
 			&models.Notification{},
+			&models.App{},
 			&models.APIKey{},
 			&models.ProviderConfig{},
 		); err != nil {
@@ -189,9 +190,21 @@ CREATE TABLE IF NOT EXISTS api_keys (
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_app_id ON api_keys(app_id);
 
+CREATE TABLE IF NOT EXISTS apps (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(255) UNIQUE NOT NULL,
+    description TEXT,
+    allowed_providers TEXT NOT NULL DEFAULT '[]',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_apps_name ON apps(name);
+
 CREATE TABLE IF NOT EXISTS provider_configs (
     id VARCHAR(36) PRIMARY KEY,
     provider VARCHAR(50) NOT NULL,
+    app_id VARCHAR(36) NULL,
     config TEXT NOT NULL,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -199,14 +212,19 @@ CREATE TABLE IF NOT EXISTS provider_configs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_provider_configs_provider ON provider_configs(provider);
+CREATE INDEX IF NOT EXISTS idx_provider_configs_provider_app ON provider_configs(provider, app_id);
 `
 }
 
 // generateDownSQL creates the DOWN migration SQL
 func generateDownSQL() string {
 	return `
+DROP INDEX IF EXISTS idx_provider_configs_provider_app;
 DROP INDEX IF EXISTS idx_provider_configs_provider;
 DROP TABLE IF EXISTS provider_configs;
+
+DROP INDEX IF EXISTS idx_apps_name;
+DROP TABLE IF EXISTS apps;
 
 DROP INDEX IF EXISTS idx_api_keys_app_id;
 DROP TABLE IF EXISTS api_keys;
