@@ -56,7 +56,7 @@ func (h *NotificationHandler) SendNotification(c echo.Context) error {
 	allowedRaw := c.Get("allowed_providers")
 	if allowedStr, ok := allowedRaw.(string); ok && allowedStr != "" {
 		var allowed []string
-		if err := json.Unmarshal([]byte(allowedStr), &allowed); err == nil && len(allowed) > 0 {
+		if err := json.Unmarshal([]byte(allowedStr), &allowed); err == nil {
 			hasPermission := false
 			for _, p := range allowed {
 				if strings.EqualFold(p, req.Provider) {
