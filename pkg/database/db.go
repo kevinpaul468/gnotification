@@ -177,9 +177,14 @@ func (db *DB) SaveProviderConfig(pc *models.ProviderConfig) error {
 	return db.Save(pc).Error
 }
 
-// GetProviderConfig retrieves the global provider configuration
-func (db *DB) GetProviderConfig(provider string) (*models.ProviderConfig, error) {
+// GetProviderConfig retrieves the provider configuration for a given app.
+// Returns the app-specific config if it exists, otherwise falls back to the global one.
+func (db *DB) GetProviderConfig(provider, appID string) (*models.ProviderConfig, error) {
 	var pc models.ProviderConfig
+	if err := db.First(&pc, "provider = ? AND app_id = ? AND is_active = ?", provider, appID, true).Error; err == nil {
+		return &pc, nil
+	}
+
 	if err := db.First(&pc, "provider = ? AND app_id IS NULL AND is_active = ?", provider, true).Error; err != nil {
 		return nil, err
 	}

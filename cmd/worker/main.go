@@ -83,6 +83,7 @@ func (w *NotificationWorker) getOrCreateProvider(ctx context.Context, appID, pro
 	configMap, err := w.db.GetMergedProviderConfig(providerName, appID)
 	if err != nil {
 		// Fallback to global provider
+		log.Printf("warning: no per-app config for %s/%s, using global: %v", appID, providerName, err)
 		w.mu.RLock()
 		p, ok := w.providers[providerName]
 		w.mu.RUnlock()
