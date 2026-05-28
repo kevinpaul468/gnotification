@@ -1,6 +1,8 @@
 # Notification Service
 
-A self-hostable notification service supporting multiple providers (email, SMS, push notifications) with a plugin architecture.
+A self-hostable, multi-tenant notification service supporting multiple providers (email, SMS, push notifications) with a plugin architecture.
+
+For a detailed design overview, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Features
 
@@ -8,24 +10,13 @@ A self-hostable notification service supporting multiple providers (email, SMS, 
 - ✅ Multiple delivery guarantees (at-least-once, at-most-once)
 - ✅ RabbitMQ message queue with dead letter queues
 - ✅ Automatic retry with exponential backoff
+- ✅ Queue reconciler (safety net for RabbitMQ failures)
 - ✅ Idempotency support (prevent duplicate sends)
+- ✅ Multi-tenant: Apps with API keys and provider permissions
+- ✅ Per-app provider config overrides (merge resolution model)
 - ✅ Built-in audit trail (tracks all sends)
 - ✅ Provider health checks
 - ✅ Self-hostable (single binary + PostgreSQL + RabbitMQ)
-
-## Architecture
-
-```
-Your Apps → Notification API → RabbitMQ Queue
-                                    ↓
-                          Worker Pool (multiple instances)
-                                    ↓
-                    ┌───────────────┼───────────────┐
-                    ↓               ↓               ↓
-              SMTP Provider    SMS Provider    Push Provider
-                    ↓               ↓               ↓
-              Gmail/SMTP      Twilio/AWS SNS   Firebase/etc
-```
 
 ## Quick Start
 
@@ -48,12 +39,26 @@ This starts:
 - Notification Server (port 8080)
 - Notification Worker (processes messages)
 
-### 3. Configure Providers
-
-Create a provider config:
+### 3. Create an App and Get API Key
 
 ```bash
-curl -X POST http://localhost:8080/admin/providers/config \
+curl -X POST http://localhost:8080/apps \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-app",
+    "description": "My first application",
+    "providers": ["smtp"]
+  }'
+```
+
+The response includes the app details and a newly generated API key (shown only once). Save the key — it's used for all subsequent requests.
+
+### 4. Configure Providers
+
+Create a global provider config via the admin API:
+
+```bash
+curl -X POST http://localhost:8080/admin/provider-configs \
   -H "Content-Type: application/json" \
   -d '{
     "provider": "smtp",
@@ -68,7 +73,7 @@ curl -X POST http://localhost:8080/admin/providers/config \
   }'
 ```
 
-### 4. Send a Notification
+### 5. Send a Notification
 
 ```bash
 curl -X POST http://localhost:8080/notifications/send \
@@ -92,10 +97,11 @@ Response:
 }
 ```
 
-### 5. Check Status
+### 6. Check Status
 
 ```bash
-curl http://localhost:8080/notifications/550e8400-e29b-41d4-a716-446655440000
+curl http://localhost:8080/notifications/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
 ## API Endpoints
@@ -177,14 +183,27 @@ ENVIRONMENT=production
 
 ### Provider Configuration
 
-Store provider configs in `provider_configs` table:
+Provider configs are stored in the `provider_configs` table. Configs can be global (`app_id` is NULL) or per-app. See [ARCHITECTURE.md](./ARCHITECTURE.md#provider-config-resolution) for the merge resolution model.
 
+Global configs are shared across all apps:
 ```sql
 INSERT INTO provider_configs (id, provider, config, is_active)
 VALUES (
   'cfg-smtp-1',
   'smtp',
   '{"host":"smtp.gmail.com","port":587,"username":"...","password":"...","from":"..."}',
+  true
+);
+```
+
+Per-app configs override specific fields:
+```sql
+INSERT INTO provider_configs (id, provider, app_id, config, is_active)
+VALUES (
+  'cfg-smtp-app-1',
+  'smtp',
+  'app-id-here',
+  '{"from":"billing@acme.com"}',
   true
 );
 ```
@@ -218,58 +237,7 @@ go build -o bin/notification-worker ./cmd/worker
 ./bin/notification-worker
 ```
 
-## Database Schema
-
-### Notifications Table
-
-Tracks all notification attempts:
-```sql
-CREATE TABLE notifications (
-    id UUID PRIMARY KEY,
-    app_id VARCHAR(255),
-    provider VARCHAR(50),
-    status VARCHAR(20),
-    recipient TEXT,
-    subject TEXT,
-    content TEXT,
-    delivery_mode VARCHAR(20),
-    provider_ref VARCHAR(255),
-    error_message TEXT,
-    retry_count INT,
-    idempotency_key VARCHAR(255) UNIQUE,
-    created_at TIMESTAMP,
-    updated_at TIMESTAMP,
-    delivered_at TIMESTAMP
-);
-```
-
-### Failed Notifications Table
-
-Dead letter queue entries:
-```sql
-CREATE TABLE failed_notifications (
-    id UUID PRIMARY KEY,
-    notification_id UUID,
-    reason TEXT,
-    next_retry_at TIMESTAMP,
-    attempts INT,
-    last_error TEXT,
-    created_at TIMESTAMP
-);
-```
-
-### Provider Configs Table
-
-```sql
-CREATE TABLE provider_configs (
-    id VARCHAR(255) PRIMARY KEY,
-    provider VARCHAR(50),
-    config JSONB,
-    is_active BOOLEAN,
-    created_at TIMESTAMP,
-    updated_at TIMESTAMP
-);
-```
+See [ARCHITECTURE.md](./ARCHITECTURE.md#database-schema) for the full schema reference.
 
 ## Delivery Guarantees
 
@@ -303,9 +271,7 @@ curl http://localhost:15672/api/queues
 
 ### Failed Messages
 
-```bash
-curl http://localhost:8080/admin/failed-notifications
-```
+Check the DLQ via RabbitMQ management UI at `http://localhost:15672`, or query the `notifications` table with `status = 'failed'`:
 
 ## Scaling
 
@@ -325,9 +291,11 @@ RabbitMQ automatically distributes messages across workers.
 
 ```bash
 # Send 1000 notifications
+API_KEY="your-api-key"
 for i in {1..1000}; do
   curl -X POST http://localhost:8080/notifications/send \
     -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $API_KEY" \
     -d "{\"provider\":\"smtp\",\"recipient\":\"test$i@example.com\",\"content\":\"Test $i\"}"
 done
 ```
@@ -349,9 +317,9 @@ docker exec notifications_rabbitmq rabbitmqctl status
 
 ### Notifications stuck in pending
 
-Check failed notifications table:
+The queue reconciler automatically re-publishes pending notifications older than 5 minutes. Check for stuck notifications:
 ```bash
-docker exec notifications_db psql -U postgres -d notifications -c "SELECT * FROM failed_notifications ORDER BY created_at DESC LIMIT 10;"
+docker exec notifications_db psql -U postgres -d notifications -c "SELECT id, status, provider, recipient, created_at, updated_at FROM notifications WHERE status = 'pending' ORDER BY created_at DESC LIMIT 10;"
 ```
 
 ### SMTP authentication fails
@@ -461,16 +429,22 @@ Access the admin dashboard at: **`http://localhost:8080/admin`**
      ```
    - Click Save Configuration
 
-4. **Create an API key:**
-   - Go to API Keys tab
-   - Enter App ID: `my-app`
-   - Click Generate API Key
-   - Copy the key (shown once only!)
+4. **Create an app and API key:**
+   ```bash
+   curl -X POST http://localhost:8080/apps \
+     -H "Content-Type: application/json" \
+     -d '{
+       "name": "my-app",
+       "providers": ["smtp"]
+     }'
+   ```
+   Copy the API key from the response (shown once only!).
 
 5. **Send a notification:**
    ```bash
    curl -X POST http://localhost:8080/notifications/send \
      -H "Content-Type: application/json" \
+     -H "Authorization: Bearer YOUR_API_KEY" \
      -d '{
        "provider": "smtp",
        "recipient": "user@example.com",
@@ -482,7 +456,7 @@ Access the admin dashboard at: **`http://localhost:8080/admin`**
 
 ### Admin API Endpoints
 
-All endpoints return JSON. No authentication required (add as needed).
+All endpoints return JSON.
 
 #### Dashboard
 - `GET /admin/stats` - Get dashboard statistics
@@ -521,12 +495,9 @@ Instead of manually inserting into the database, use the admin UI to:
    - Enter app name
    - Copy and save the key
 
-### For Full Details
+### Further Reading
 
-See [ADMIN_GUIDE.md](./ADMIN_GUIDE.md) for:
-- Detailed UI walkthrough
-- All provider configuration examples
-- Security best practices
-- Troubleshooting guide
-- API endpoint reference
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — Full architecture design and component details
+- [PLUGIN_ARCHITECTURE.md](./PLUGIN_ARCHITECTURE.md) — How to add new providers
+- [ARCHITECTURE_DECISIONS.md](./ARCHITECTURE_DECISIONS.md) — Technology choice rationale
 

@@ -33,7 +33,9 @@ Worker Pool (multiple processes)
 ## Key Features
 
 ✅ **Plugin Architecture** - Add providers without modifying core code
-✅ **Reliable** - At-least-once delivery with exponential backoff
+✅ **Multi-tenant** - Apps with API keys, provider permissions, and per-app config overrides
+✅ **Reliable** - At-least-once delivery with exponential backoff + DLQ
+✅ **Queue Reconciler** - Automatic recovery of messages lost during RabbitMQ failures
 ✅ **Scalable** - Run multiple workers, process thousands/second
 ✅ **Observable** - Full audit trail in database
 ✅ **Self-hostable** - PostgreSQL + RabbitMQ + Go binary
@@ -47,24 +49,38 @@ Worker Pool (multiple processes)
 ```
 notifications/
 ├── cmd/
-│   ├── server/       → REST API (receives notification requests)
-│   └── worker/       → Message processor (sends notifications)
+│   ├── server/          → REST API (receives notification requests)
+│   ├── worker/          → Message processor (sends notifications)
+│   └── migrate/         → Database migration tool
+│
+├── internal/
+│   ├── handlers/
+│   │   ├── notification.go  → Send/status endpoints, permission validation
+│   │   ├── app.go           → App management endpoints
+│   │   ├── admin.go         → Admin dashboard + API
+│   │   └── admin_html.go    → Admin HTML UI
+│   └── middleware/
+│       └── auth.go          → Bearer token authentication middleware
 │
 ├── pkg/
 │   ├── providers/    → Email, SMS, Push implementations (PLUGIN SYSTEM)
-│   ├── models/       → Database schemas
+│   ├── models/       → Database schemas (Notification, App, APIKey, ProviderConfig)
 │   ├── queue/        → RabbitMQ client
-│   └── database/     → PostgreSQL client
+│   └── database/     → PostgreSQL client and queries
 │
-├── internal/
-│   └── handlers/     → HTTP route handlers
-│
+├── migrations/
+│   └── 00001_init_schema.sql  → Initial schema
+├── plans/
+│   └── multi-tenant-auth-and-app-management.md → Refactor plan
 ├── docker-compose.yml   → Local dev environment
-├── README.md            → Full documentation
-├── GETTING_STARTED.md   → Step-by-step tutorial
-├── PLUGIN_ARCHITECTURE.md → How to add providers
+├── README.md            → Main documentation
+├── ARCHITECTURE.md      → Comprehensive architecture design
 ├── ARCHITECTURE_DECISIONS.md → Why we chose everything
-└── QUICK_REFERENCE.md   → Common commands
+├── PLUGIN_ARCHITECTURE.md → How to add providers
+├── GETTING_STARTED.md   → Step-by-step tutorial
+├── QUICK_REFERENCE.md   → Common commands
+├── PROJECT_SUMMARY.md   → This file
+└── 00_START_HERE.md     → Onboarding guide
 ```
 
 ---
@@ -221,20 +237,22 @@ Done! No configuration files, no plugins directory, just code.
 
 ---
 
-## Files Explained
+## Key Files
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `pkg/providers/interface.go` | 60 | Core provider interface |
-| `pkg/providers/smtp.go` | 140 | Email provider (plugin example) |
-| `pkg/providers/sms.go` | 130 | SMS provider (plugin example) |
-| `pkg/queue/queue.go` | 200 | RabbitMQ client |
-| `pkg/database/db.go` | 150 | PostgreSQL client |
-| `pkg/models/notification.go` | 80 | Database models |
-| `internal/handlers/notification.go` | 160 | HTTP handlers |
-| `cmd/server/main.go` | 70 | REST API server |
-| `cmd/worker/main.go` | 280 | Message worker |
-| **Total** | **~1400 lines** | **Full production service** |
+| File | Purpose |
+|------|---------|
+| `pkg/providers/interface.go` | Core Provider interface + registry |
+| `pkg/providers/smtp.go` | SMTP email provider (plugin example) |
+| `pkg/providers/sms.go` | SMS provider (mock) |
+| `pkg/queue/queue.go` | RabbitMQ client (3 queues: work, retry, DLQ) |
+| `pkg/database/db.go` | PostgreSQL client and queries |
+| `pkg/models/notification.go` | All database models (Notification, App, APIKey, ProviderConfig) |
+| `internal/handlers/notification.go` | Send/status endpoints with auth and permission validation |
+| `internal/handlers/app.go` | App management CRUD endpoints |
+| `internal/handlers/admin.go` | Admin dashboard API |
+| `internal/middleware/auth.go` | Bearer token authentication middleware |
+| `cmd/server/main.go` | REST API server entry point |
+| `cmd/worker/main.go` | Queue consumer worker with reconciler |
 
 ---
 
